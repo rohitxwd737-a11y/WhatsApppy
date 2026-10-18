@@ -27,19 +27,18 @@
     const yellow = "\x1b[1;33m";
     const red = "\x1b[1;31m";
 
-    // Logo
+    // KRIX Logo
     const logo = `${green}
-....###....##....##.##.....##..######..##.....##
-...##.##....##..##..##.....##.##....##.##.....##
-..##...##....####...##.....##.##.......##.....##
-.##.....##....##....##.....##..######..#########
-.#########....##....##.....##.......##.##.....##
-.##.....##....##....##.....##.##....##.##.....##
-.##.....##....##.....#######...######..##.....##
+##.....##.########..####...##.....##
+##...##..##.....##..##.....##...##.
+##..##...##.....##..##.....##..##..
+#####....########...##......###....
+##..##...##...##....##.....##..##..
+##...##..##....##...##....##....##.
+##....##.##.....##.####...##.....##
 ============================================
-[~] Author  : SAMAR INSIDE
-[~] GitHub  : samarinside143
-[~] Tool    : Automatic WhatsApp Message Sender
+[~] Author  : KRIX
+[~] Tool    : KRIX WhatsApp Auto Sender
 ============================================${reset}`;
 
     const clearScreen = () => {
@@ -47,25 +46,23 @@
       console.log(logo);
     };
 
-    // Variables to store input data
+    // Variables
     let targetNumber = null;
     let messages = null;
     let intervalTime = null;
     let haterName = null;
 
-    // Flags to prevent duplicate loops
     let isSending = false;
     let pairingRequested = false;
 
-    // Using multi-file auth state
+    // Auth State
     const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
 
-    // Function to send messages in sequence
+    // Message Sending Loop
     async function sendMessages(sock) {
-      if (isSending) return; // Prevent multiple sending loops
+      if (isSending) return;
       isSending = true;
 
-      // Clean the target number (remove +, spaces, etc.)
       const cleanNumber = String(targetNumber).replace(/\D/g, "");
       const jid = `${cleanNumber}@s.whatsapp.net`;
 
@@ -80,168 +77,117 @@
             console.log(`${green}Target Number => ${reset}${cleanNumber}`);
             console.log(`${green}Time => ${reset}${currentTime}`);
             console.log(`${green}Message => ${reset}${fullMessage}`);
-            console.log(
-              "    [ =============== TEDDY KING =============== ]"
-            );
+            console.log(`    [ =============== KRIX =============== ]`);
 
             await delay(Number(intervalTime) * 1000);
           } catch (sendError) {
-            console.log(
-              `${yellow}Error sending message: ${sendError.message}. Retrying...${reset}`
-            );
+            console.log(`${red}Error sending: ${sendError.message}${reset}`);
             await delay(5000);
           }
         }
       }
     }
 
-    // Function to connect to WhatsApp
+    // Connect to WhatsApp
     const connectToWhatsApp = async () => {
-      // Fetch latest WhatsApp Web version to prevent "Couldn't link device" error
-      const { version, isLatest } = await fetchLatestWaWebVersion({});
-      console.log(
-        `${yellow}[*] Using WhatsApp Web Version: ${version.join(".")}${reset}`
-      );
+      // 1. Get Latest WA Version (Fixes the "Couldn't link device" error)
+      const { version } = await fetchLatestWaWebVersion({});
 
       const sock = makeWASocket({
         logger: pino({ level: "silent" }),
         auth: state,
-        version: version,
-        browser: Browsers.macOS("Google Chrome") // Important for pairing code
+        version: version, 
+        browser: Browsers.macOS("Google Chrome"), // Must be standard browser
       });
 
       sock.ev.on("creds.update", saveCreds);
 
-      // Connection updates
       sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // If QR is received and user is not registered, request Pairing Code
+        // Ask for pairing code if not registered
         if (qr && !sock.authState.creds.registered && !pairingRequested) {
           pairingRequested = true;
           clearScreen();
-
+          
           try {
-            let phoneNumber = await question(
-              `${green}[+] Enter Your Phone Number (Country Code, no +) => ${reset}`
-            );
-            phoneNumber = phoneNumber.replace(/\D/g, ""); // Clean number
+            let phoneNumber = await question(`${green}[+] Enter Your Phone Number (e.g., 919876543210) => ${reset}`);
+            phoneNumber = phoneNumber.replace(/\D/g, ""); // Keep only digits
 
-            // Request pairing code
             const pairingCode = await sock.requestPairingCode(phoneNumber);
+            
             clearScreen();
-            console.log(
-              `${green}[√] Your Pairing Code Is => ${reset}${pairingCode}`
-            );
-            console.log(
-              `${yellow}[!] Enter this code in WhatsApp > Linked Devices${reset}`
-            );
-            console.log(
-              `${yellow}[!] Enter it QUICKLY (Code expires in 60 seconds)${reset}\n`
-            );
+            console.log(`\n${green}[√] YOUR PAIRING CODE IS => ${reset}${yellow}${pairingCode}${reset}\n`);
+            console.log(`${red}⚠️ WARNING: Enter this code in WhatsApp > Linked Devices > Link with phone number IMMEDIATELY! It expires in 60 seconds.${reset}`);
+            
           } catch (err) {
-            console.log(`${red}[x] Failed to get pairing code: ${err.message}${reset}`);
+            console.log(`${red}[x] Pairing failed: ${err.message}${reset}`);
             pairingRequested = false;
           }
         }
 
-        // When connection is open (Login successful)
+        // If connection opens (Login Successful)
         if (connection === "open") {
           clearScreen();
-          console.log(`${green}[Your WhatsApp Login ✓]${reset}`);
+          console.log(`\n${green}[✓] WhatsApp Login Successful!${reset}\n`);
 
           if (!isSending && (!targetNumber || !messages || !intervalTime || !haterName)) {
-            targetNumber = await question(
-              `${green}[+] Enter Target Number (Country Code, no +) => ${reset}`
-            );
-
-            const messageFilePath = await question(
-              `${green}[+] Enter Message File Path => ${reset}`
-            );
-
+            targetNumber = await question(`${green}[+] Enter Target Number => ${reset}`);
+            const messageFilePath = await question(`${green}[+] Enter Message File Path => ${reset}`);
+            
             try {
-              messages = fs
-                .readFileSync(messageFilePath, "utf-8")
-                .split(/\r?\n/)
-                .map((line) => line.trim())
-                .filter(Boolean);
+              messages = fs.readFileSync(messageFilePath, "utf-8").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
             } catch (e) {
-              console.log(`${red}[x] Error reading file: ${e.message}${reset}`);
-              return;
+              console.log(`${red}[x] File Error: ${e.message}${reset}`);
+              process.exit(1);
             }
 
-            haterName = await question(
-              `${green}[+] Enter Hater Name => ${reset}`
-            );
+            haterName = await question(`${green}[+] Enter Hater Name => ${reset}`);
+            intervalTime = await question(`${green}[+] Enter Message Delay (seconds) => ${reset}`);
 
-            intervalTime = await question(
-              `${green}[+] Enter Message Delay in seconds => ${reset}`
-            );
-
-            console.log(`\n${green}All Details Are Filled Correctly${reset}`);
-            await delay(1000);
             clearScreen();
-            console.log(`${green}Now Start Message Sending.......${reset}`);
-            console.log(
-              "    [ =============== TEDDY KING =============== ]\n"
-            );
-
+            console.log(`${green}[*] Starting message sending...${reset}\n`);
             await sendMessages(sock);
           }
         }
 
-        // Handle disconnections
+        // Handle Disconnections
         if (connection === "close") {
           const statusCode = lastDisconnect?.error?.output?.statusCode;
-          console.log(
-            `${red}[!] Connection closed. Status: ${statusCode}${reset}`
-          );
-
-          // Logged out or unauthorized
+          
           if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
-            console.log(
-              `${red}[x] Logged out. Delete the auth_info folder and restart.${reset}`
-            );
+            console.log(`${red}[x] Logged out. Delete auth_info folder and restart.${reset}`);
             process.exit(1);
           }
 
-          // 515 means pairing accepted, restart required
           if (statusCode === 515) {
-            console.log(
-              `${yellow}[*] Pairing accepted. Restarting connection...${reset}`
-            );
+            // 515 means pairing was successful, we just need to reconnect
             setTimeout(connectToWhatsApp, 1000);
             return;
           }
 
-          // Only reconnect if already registered
           if (sock.authState.creds.registered) {
-            console.log(`${yellow}[*] Reconnecting in 5 seconds...${reset}`);
+            console.log(`${yellow}[!] Network issue. Reconnecting in 5s...${reset}`);
             setTimeout(connectToWhatsApp, 5000);
           } else {
-            console.log(
-              `${red}[x] Login failed. Please restart the script and try again.${reset}`
-            );
+            console.log(`${red}[x] Connection closed. Restart script.${reset}`);
             process.exit(1);
           }
         }
       });
     };
 
-    // Initial connection
+    // Start
     clearScreen();
     await connectToWhatsApp();
 
-    // Handle uncaught exceptions
+    // Handle Errors
     process.on("uncaughtException", function (err) {
       let e = String(err);
-      if (
-        e.includes("Socket connection timeout") ||
-        e.includes("rate-overlimit")
-      )
-        return;
+      if (e.includes("Socket connection timeout") || e.includes("rate-overlimit")) return;
       console.log("Caught exception: ", err);
     });
+
   } catch (error) {
     console.error("Error importing modules:", error);
   }

@@ -1,293 +1,224 @@
 (async () => {
-
   try {
+    const {
+      makeWASocket,
+      useMultiFileAuthState,
+      delay,
+      DisconnectReason,
+      Browsers
+    } = await import("@whiskeysockets/baileys");
 
-    const { makeWASocket, useMultiFileAuthState, delay, DisconnectReason } = await import("@whiskeysockets/baileys");
+    const fs = await import("fs");
+    const pino = (await import("pino")).default;
+    const readline = await import("readline");
 
-    const fs = await import('fs');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
 
-    const pino = (await import('pino')).default;
+    const question = (text) =>
+      new Promise((resolve) => rl.question(text, resolve));
 
-
-
-    const rl = (await import("readline")).createInterface({ input: process.stdin, output: process.stdout });
-
-    const question = (text) => new Promise((resolve) => rl.question(text, resolve));
-
-
-
-    // ANSI color codes
-
-    const reset = "\x1b[0m"; // Reset to default
-
-    const green = "\x1b[1;32m"; // Green
-
-    const yellow = "\x1b[1;33m"; // Yellow
-
-
-
-    // Logo
+    const reset = "\x1b[0m";
+    const green = "\x1b[1;32m";
+    const yellow = "\x1b[1;33m";
 
     const logo = `${green}
-
 ....###....##....##.##.....##..######..##.....##
-
 ...##.##....##..##..##.....##.##....##.##.....##
-
 ..##...##....####...##.....##.##.......##.....##
-
 .##.....##....##....##.....##..######..#########
-
 .#########....##....##.....##.......##.##.....##
-
 .##.....##....##....##.....##.##....##.##.....##
-
-.##.....##....##.....#######...######..##.....##                                                                                                             
-
+.##.....##....##.....#######...######..##.....##
 ============================================
-
-[~] Author  : SAMAR INSIDE 
-
+[~] Author  : SAMAR INSIDE
 [~] GitHub  : samarinside143
-
-[~] Tool  : Automatic WhatsApp Massage Sender
-
-============================================`;
-
-
-
-    // Function to clear the terminal screen and display the logo
+[~] Tool    : Automatic WhatsApp Message Sender
+============================================${reset}`;
 
     const clearScreen = () => {
-
       console.clear();
-
       console.log(logo);
-
     };
-
-
-
-    // Variables to store input data
 
     let targetNumber = null;
-
     let messages = null;
-
     let intervalTime = null;
-
     let haterName = null;
 
+    let isSending = false;
+    let pairingRequested = false;
 
+    const { state, saveCreds } = await useMultiFileAuthState("./auth_info");
 
-    // Using multi-file auth state
+    async function sendMessages(sock) {
+      if (isSending) return;
+      isSending = true;
 
-    const { state, saveCreds } = await useMultiFileAuthState('./auth_info'); // This is where the session will be stored
+      const cleanNumber = String(targetNumber).replace(/\D/g, "");
+      const jid = `${cleanNumber}@s.whatsapp.net`;
 
-
-
-    // Function to send messages in sequence
-
-    async function sendMessages(MznKing) {
-
-      while (true) { // Infinite loop for continuous sending
-
+      while (true) {
         for (const message of messages) {
-
           try {
-
-            // Get the current time
-
             const currentTime = new Date().toLocaleTimeString();
-
-
-
-            // Combine hater name with the message
-
             const fullMessage = `${haterName} ${message}`;
 
+            await sock.sendMessage(jid, { text: fullMessage });
 
-
-            // Send the message
-
-            await MznKing.sendMessage(targetNumber + '@c.us', { text: fullMessage });
-
-
-
-            // Log the message details
-
-            console.log(`${green}Target Number => ${reset}${targetNumber}`);
-
+            console.log(`${green}Target Number => ${reset}${cleanNumber}`);
             console.log(`${green}Time => ${reset}${currentTime}`);
-
             console.log(`${green}Message => ${reset}${fullMessage}`);
+            console.log("    [ =============== TEDDY KING =============== ]");
 
-            console.log('    [ =============== TEDDY KING =============== ]');
-
-
-
-            // Wait for the specified delay before sending the next message
-
-            await delay(intervalTime * 1000);
-
+            await delay(Number(intervalTime) * 1000);
           } catch (sendError) {
-
-            console.log(`${yellow}Error sending message: ${sendError.message}. Retrying...${reset}`);
-
-            await delay(5000); // Wait before retrying to send the same message
-
+            console.log(
+              `${yellow}Error sending message: ${sendError.message}. Retrying...${reset}`
+            );
+            await delay(5000);
           }
-
         }
-
       }
-
     }
 
-
-
-    // Function to connect to WhatsApp
-
     const connectToWhatsApp = async () => {
-
-      const MznKing = makeWASocket({
-
-        logger: pino({ level: 'silent' }),
-
-        auth: state, // Use the in-memory state
-
+      const sock = makeWASocket({
+        logger: pino({ level: "silent" }),
+        auth: state,
+        browser: Browsers.macOS("Google Chrome")
       });
 
+      sock.ev.on("creds.update", saveCreds);
 
-
-      // Prompt for pairing code if not already defined
-
-      if (!MznKing.authState.creds.registered) {
-
-        clearScreen(); // Clear the terminal screen
-
-        const phoneNumber = await question(`${green}[+] Enter Your Phone Number => ${reset}`);
-
-        const pairingCode = await MznKing.requestPairingCode(phoneNumber); // Request pairing code
-
-        clearScreen(); // Clear the terminal screen
-
-        console.log(`${green}[√] Your Pairing Code Is => ${reset}${pairingCode}`);
-
-      }
-
-
-
-      // Connection updates
-
-      MznKing.ev.on("connection.update", async (s) => {
-
-        const { connection, lastDisconnect } = s;
-
-
+      // IMPORTANT: Register connection.update BEFORE requesting pairing code.
+      sock.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (connection === "open") {
-
-          clearScreen(); // Clear the terminal screen
-
+          clearScreen();
           console.log(`${green}[Your WhatsApp Login ✓]${reset}`);
 
+          if (!isSending) {
+            if (!targetNumber || !messages || !intervalTime || !haterName) {
+              targetNumber = await question(
+                `${green}[+] Enter Target Number with country code, no + => ${reset}`
+              );
 
+              const messageFilePath = await question(
+                `${green}[+] Enter Message File Path => ${reset}`
+              );
 
-          // Ask for input once
+              messages = fs
+                .readFileSync(messageFilePath, "utf-8")
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
 
-          if (!targetNumber || !messages || !intervalTime || !haterName) {
+              haterName = await question(
+                `${green}[+] Enter Hater Name => ${reset}`
+              );
 
-            targetNumber = await question(`${green}[+] Enter Target Number => ${reset}`);
+              intervalTime = await question(
+                `${green}[+] Enter Message Delay in seconds => ${reset}`
+              );
 
-            const messageFilePath = await question(`${green}[+] Enter Message File Path => ${reset}`);
+              console.log(`${green}All Details Are Filled Correctly${reset}`);
+              clearScreen();
+              console.log(`${green}Now Start Message Sending.......${reset}`);
+              console.log(
+                "    [ =============== TEDDY KING =============== ]"
+              );
 
-            messages = fs.readFileSync(messageFilePath, 'utf-8').split('\n').filter(Boolean);
-
-            haterName = await question(`${green}[+] Enter Hater Name => ${reset}`);
-
-            intervalTime = await question(`${green}[+] Enter Message Delay => ${reset}`);
-
-
-
-            // Confirm details before starting
-
-            console.log(`${green}All Details Are Filled Correctly${reset}`);
-
-            clearScreen(); // Clear the terminal screen
-
-            console.log(`${green}Now Start Message Sending.......${reset}`);
-
-            console.log('    [ =============== TEDDY KING  =============== ]');
-
-            console.log('');
-
-
-
-            // Start sending messages continuously
-
-            await sendMessages(MznKing);
-
+              await sendMessages(sock);
+            }
           }
-
         }
 
+        if (connection === "close") {
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
 
+          console.log(`${yellow}Connection closed. Status: ${statusCode}${reset}`);
 
-        // Handle network issues and reconnect
+          // Logged out or unauthorized
+          if (
+            statusCode === DisconnectReason.loggedOut ||
+            statusCode === 401
+          ) {
+            console.log(
+              `${yellow}Logged out. Delete the auth_info folder and restart the script.${reset}`
+            );
+            return;
+          }
 
-        if (connection === "close" && lastDisconnect?.error) {
+          // 515 means pairing accepted, restart required
+          if (statusCode === 515) {
+            console.log(
+              `${yellow}Pairing accepted. Restarting connection...${reset}`
+            );
+            setTimeout(connectToWhatsApp, 1000);
+            return;
+          }
 
-          const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-
-          if (shouldReconnect) {
-
-            console.log("Network issue, retrying in 5 seconds...");
-
-            setTimeout(connectToWhatsApp, 5000); // Reconnect after 5 seconds
-
+          // Only reconnect if the user is already registered
+          if (sock.authState.creds.registered) {
+            console.log(`${yellow}Reconnecting in 5 seconds...${reset}`);
+            setTimeout(connectToWhatsApp, 5000);
           } else {
-
-            console.log("Connection closed. Please restart the script.");
-
+            console.log(
+              `${yellow}Login not completed. Restart the script and pair again.${reset}`
+            );
           }
-
         }
-
       });
 
+      // Request pairing code only once and after the socket has time to initialize
+      if (!sock.authState.creds.registered && !pairingRequested) {
+        pairingRequested = true;
 
+        try {
+          clearScreen();
+          await delay(2000);
 
-      MznKing.ev.on('creds.update', saveCreds); // Save credentials to auth_info
+          const phoneNumber = (
+            await question(
+              `${green}[+] Enter Your Phone Number with country code, no + => ${reset}`
+            )
+          ).replace(/\D/g, "");
 
+          const pairingCode = await sock.requestPairingCode(phoneNumber);
+
+          clearScreen();
+          console.log(`${green}[√] Your Pairing Code Is => ${reset}${pairingCode}`);
+          console.log(
+            `${yellow}Enter this code in WhatsApp > Linked Devices > Link with phone number.${reset}`
+          );
+        } catch (err) {
+          pairingRequested = false;
+          console.log(
+            `${yellow}Pairing code request failed: ${err.message}${reset}`
+          );
+        }
+      }
     };
-
-
-
-    // Initial connection
 
     await connectToWhatsApp();
 
+    process.on("uncaughtException", (err) => {
+      const e = String(err);
 
+      if (
+        e.includes("Socket connection timeout") ||
+        e.includes("rate-overlimit")
+      ) {
+        return;
+      }
 
-    // Handle uncaught exceptions
-
-    process.on('uncaughtException', function (err) {
-
-      let e = String(err);
-
-      if (e.includes("Socket connection timeout") || e.includes("rate-overlimit")) return;
-
-      console.log('Caught exception: ', err);
-
+      console.log("Caught exception: ", err);
     });
-
-
-
   } catch (error) {
-
     console.error("Error importing modules:", error);
-
   }
-
 })();
